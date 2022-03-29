@@ -1,0 +1,75 @@
+Configuring ClamAV and syslog-ng on OpenBSD
+
+# (Optional): If you would like to use syslog-ng,
+# follow steps A-D. To proceed using the built-in
+# syslogd daemon, skip to steps E-F.
+
+# Step A: Install syslog-ng
+pkg_add syslog-ng
+
+# Step B: Edit the syslog-ng configuration file
+vi /etc/syslog-ng/syslog-ng.conf
+
+	Contents of syslog-ng.conf:
+	# Add five lines in their respective sections
+
+		filter f_clamav { match("clamav"); };
+		destination clamlog { file("/var/log/clamav/clamscan.log"); };
+		destination d_syslog_udp {
+		              syslog("35.8.13.19" transport("udp") port(514)); };
+		log { source(s_local); filter(f_clamav); destination(d_syslog_udp); };
+		log { source(s_local); filter(f_clamav); destination(clamlog); };
+
+# Step C: Create the log file
+touch /var/log/clamdscan.log
+
+# Step D: Restart the syslog-ng service
+service syslog-ng restart
+
+# Step E: (only if you didn't do steps A-D)
+vi /etc/syslog.conf
+# Add the following line at the end of the file.
+*.info		@192.168.154.129
+
+# Step F: Restart syslogd
+/etc/rc.d/syslogd restart
+
+# Install ClamAV
+pkg_add clamav 
+# Note: If it fails, try it again.
+
+# Edit the clamd.conf file
+vi /etc/clamd.conf
+# Comment out the line
+Example (eg. #Example)
+# Uncomment the following lines:
+LogFile /var/log/clamd.log
+LogFileMaxSize 2M
+LogTime yes
+LogRotate yes
+OfficialDatabaseOnly yes
+ExcludePath ^/proc/
+ExcludePath ^/sys/
+
+# Edit the freshclam.conf file
+vi /etc/freshclam.conf
+# Uncomment the following lines:
+UpdateLogFile /var/log/freshclam.log
+LogFileMaxSize 2M
+LogTime yes
+LogRotate yes
+
+# If you want to test clamdscan, you can create an eicar.com file.
+# https://kc.mcafee.com/corporate/index?page=content&id=KB59742
+
+Experimental troubleshoting steps to make clamd work:
+
+1. touch /var/log/clamd.log
+2. touch /var/log/freshclam.log
+3. touch /tmp/clamd.socket
+4. mv /var/db/clamav/daily.cvd /var/db/clamav/daily.bak
+5. mv /var/db/clamav/main.cvd /var/db/clamav/main.bak
+6. chown _clamav:_clamav /var/clamav
+7. chown _clamav:_clamav /tmp/
+8. Rerun freshclam (--debug gives more info)
+9. /etc/rc.d/clamd start

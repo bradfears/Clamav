@@ -1,0 +1,22 @@
+# Installing syslog-ng on Ubuntu
+apt-get update && apt-get install -y syslog-ng
+
+# Edit the syslog-ng configuration file
+vi /etc/syslog-ng/syslog-ng.conf
+
+Contents of syslog-ng.conf:
+	@version: 3.13
+	@include "scl.conf"
+	@include "`scl-root`/system/tty10.conf"
+
+	options {
+	  stats_freq (43200);
+	};
+
+	source s_local { system(); internal(); };
+	filter f_clamav { not message("CLAMAV"); };
+	destination clamlog { file("/var/log/clamav/clamscan.log"); };
+	destination d_syslog_udp {
+	              syslog("172.17.0.3" transport("udp") port(514)); };
+	log { source(s_local); filter(f_clamav); destination(d_syslog_udp); };
+	log { source(s_local); filter(f_clamav); destination(clamlog); };

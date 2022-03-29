@@ -1,0 +1,109 @@
+Configuring ClamAV and syslog-ng on CentOS
+
+# (Optional): If you would like to use syslog-ng,
+# follow steps A-C. To proceed using the built-in
+# rsyslog daemon, skip to steps D-E.
+
+# Step A: Install syslog-ng
+cd /home/<user>
+yum update
+dnf config-manager --set-enabled PowerTools
+yum install epel-release
+yum erase rsyslog
+
+# Step B: Edit the syslog-ng configuration file
+vi /etc/syslog-ng/syslog-ng.conf
+
+	Contents of syslog-ng.conf:
+	# Add five lines in their respective sections
+
+		filter f_clamav { match("clamav"); };
+		destination clamlog { file("/var/log/clamav/clamscan.log"); };
+		destination d_syslog_udp {
+		              syslog("35.8.13.19" transport("udp") port(514)); };
+		log { source(s_local); filter(f_clamav); destination(d_syslog_udp); };
+		log { source(s_local); filter(f_clamav); destination(clamlog); };
+
+# Step C: Restart the syslog-ng service
+service syslog-ng restart
+
+# Step D: (only if you didn't do steps A-D)
+vi /etc/rsyslog.conf
+# Add the following line at the end of the file.
+:msg, regex, "Starting scan" @192.168.154.129:514
+:msg, contains, "clamd" @192.168.154.129:514
+:msg, regex, "Last Scanned" @192.168.154.129:514
+
+
+# Step E: Restart rsyslogd
+service rsyslog restart
+
+# Install EPEL (Extra Packages for Enterprise Linux)
+yum install epel-release
+
+# Install clamav
+yum update && yum install clamav clamd clamav-update
+# Note: If yum can't connect, issue the command "ifup ens33" (vmware nic)
+
+# Create a socket file
+touch /etc/clamd.d/clamd.sock
+chown clamscan:clamscan /etc/clamd.d/clamd.sock
+
+# Change permissions
+touch /var/log/clamdscan.log
+touch /var/log/freshclam.log
+chown clamscan:clamscan /var/log/clamdscan.log
+chown clamscan:clamscan /var/log/freshclam.log
+
+# Create the clamd.service file
+vi /etc/systemd/system/clamd.service
+	[Unit]
+	Description = clamd scanner (%i) daemon
+	Documentation=man:clamd(8) man:clamd.conf(5) https://www.clamav.net/documents/
+	After = syslog.target nss-lookup.target network.target
+
+	[Service]
+	Type = forking
+	ExecStart = /usr/sbin/clamd -c /etc/clamd.d/scan.conf
+	# Reload the database
+	ExecReload=/bin/kill -USR2 $MAINPID
+	Restart = on-failure
+	TimeoutStartSec=420
+
+	[Install]
+	WantedBy = multi-user.target
+
+
+# Grant SE Linux permission to scan
+setsebool -P antivirus_can_scan_system 1
+
+# Change ownership of clamav database
+chown -R clamscan:clamscan /var/lib/clamav
+
+# Run the clamav updater (freshclam)
+freshclam
+
+# Edit the scan.conf file
+vi /etc/clamd.d/scan.conf
+# Comment out the line
+Example (eg. #Example)
+# Uncomment the following lines:
+LogFile /var/log/clamdscan.log
+LogFileMaxSize 2M
+LogTime yes
+LogRotate yes
+LocalSocket /run/clamd.scan/clamd.sock
+ExcludePath ^/proc/
+ExcludePath ^/sys/
+ExcludePath ^/dev/
+
+# Edit the freshclam.conf file
+vi /etc/freshclam.conf
+# Uncomment the following lines:
+UpdateLogFile /var/log/freshclam.log
+LogFileMaxSize 2M
+LogTime yes
+LogRotate yes
+
+# If you want to test clamdscan, you can create an eicar.com file.
+# https://kc.mcafee.com/corporate/index?page=content&id=KB59742

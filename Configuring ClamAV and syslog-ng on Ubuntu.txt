@@ -1,0 +1,73 @@
+Installing ClamAV and syslog-ng on Ubuntu
+
+# Remove rsyslog
+service rsyslog stop
+sudo apt-get remove rsyslog
+
+# Installing syslog-ng on Ubuntu
+sudo apt-get update && apt-get install -y syslog-ng
+
+
+# Edit the syslog-ng configuration file
+vi /etc/syslog-ng/syslog-ng.conf
+
+Contents of syslog-ng.conf:
+	@version: 3.13
+	@include "scl.conf"
+	@include "`scl-root`/system/tty10.conf"
+
+	options {
+	  stats_freq (43200);
+	};
+
+	source s_local { system(); internal(); };
+	filter f_clamd { match("clamd"); };
+	destination clamlog { file("/var/log/clamdscan.log"); };
+	destination d_syslog_udp {
+	              syslog("35.8.13.19" transport("udp") port(514)); };
+	log { source(s_local); filter(f_clamd); destination(d_syslog_udp); };
+	log { source(s_local); filter(f_clamd); destination(clamlog); };
+
+# Restart the syslog-ng service
+sudo service syslog-ng restart
+
+# Install clamd + freshclam
+sudo apt-get install -y clamav clamav-daemon clamav-freshclam
+
+# Force the updater to run once manually
+sudo freshclam
+
+# Start the clamd-freshclam service
+sudo service clamd-freshclam start
+
+# Add exclusions to clamdscan
+sudo vi /etc/clamav/clamd.conf
+# add these lines
+ExcludePath ^/dev/
+ExcludePath ^/proc/
+ExcludePath ^/sys/
+
+# Create a log file for clamd, so we have something to review local to the server.
+# ONLY if you edit the default logging config. Otherwise, logs are generated
+# at /var/log/clamav/.
+sudo touch /var/log/clamdscan.log
+sudo chown clamav:adm /var/log/clamdscan.log
+
+# Create a script to run clamscan
+Contents of script (name it whatever you like)
+#!/bin/bash
+startTime=`date`
+currentHost=`hostname`		
+echo "Starting scan on host $currentHost, $startTime" | logger -t clamd
+/usr/bin/clamdscan --fdpass --infected --no-summary / | logger -t clamd
+endTime=`date`	
+echo "Finshed scan on host $currentHost, $endTime" | logger -t clamd
+
+# Add a cron job to run clamscan every N minutes
+crontab -e
+# At the end of the file, add this line (ex. scan every 5 minutes)
+0,20,40 * * * * /root/<script name from above> /dev/null 2>&1
+0 * * * * /usr/bin/freshclam >/dev/null 2>&1
+
+# If you want to test clamdscan, you can create an eicar.com file.
+# https://kc.mcafee.com/corporate/index?page=content&id=KB59742
